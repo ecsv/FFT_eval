@@ -11,18 +11,15 @@
  * based chipsets.
  */
 
-#include <stdio.h>
-#include <math.h>
-
-#ifndef __NOSDL__
-  #include <SDL.h>
-  #include <SDL_ttf.h>
-#endif
-
 #include <inttypes.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "fft_eval.h"
+#include "fft_eval_sdl_compat.h"
 
 #define WIDTH	1600
 #define HEIGHT	650
@@ -51,31 +48,26 @@ static int color_invert = 0;
 static int graphics_init_sdl(char *name, const char *fontdir)
 {
 	SDL_Window *window;
-	int SDLFlags = 0;
 	char buf[1024];
 
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0) {
+	if (!compat_sdl_init()) {
 		fprintf(stderr, "Initializing SDL failed\n");
 		return -1;
 	}
 
-	SDLFlags |= SDL_WINDOW_RESIZABLE;
-
-	window = SDL_CreateWindow(name, SDL_WINDOWPOS_UNDEFINED,
-				  SDL_WINDOWPOS_UNDEFINED, WIDTH, HEIGHT,
-				  SDLFlags);
+	window = compat_create_window(name, WIDTH, HEIGHT);
 	if (!window) {
 		fprintf(stderr, "Initializing SDL window failed\n");
 		return -1;
 	}
 
-	renderer = SDL_CreateRenderer(window, -1, 0);
+	renderer = compat_create_renderer(window);
 	if (!renderer) {
 		fprintf(stderr, "Initializing SDL renderer failed\n");
 		return -1;
 	}
 
-	if (TTF_Init() < 0) {
+	if (!compat_ttf_init()) {
 		fprintf(stderr, "Initializing SDL TTF failed\n");
 		return -1;
 	}
@@ -86,7 +78,7 @@ static int graphics_init_sdl(char *name, const char *fontdir)
 	if (!font) {
 		fprintf(stderr, "Opening font (%s) failed: %s\n",
 		    buf,
-		    TTF_GetError());
+		    SDL_GetError());
 		return -1;
 	}
 
@@ -161,12 +153,12 @@ static int render_text(SDL_Surface *surface, char *text, int x, int y)
 		fontcolor = fontcolor_white;
 	}
 
-	text_surface = TTF_RenderText_Solid(font, text, fontcolor);
+	text_surface = compat_render_text(font, text, fontcolor);
 	if (!text_surface)
 		return -1;
 
 	SDL_BlitSurface(text_surface, NULL, surface, &fontdest);
-	SDL_FreeSurface(text_surface);
+	SDL_DestroySurface(text_surface);
 
 	return 0;
 }
@@ -475,9 +467,8 @@ static int draw_picture(int highlight, int startfreq)
 	char text[1024];
 	struct scanresult *result;
 	SDL_Surface *surface;
-	SDL_Rect DestR;
 
-	surface = SDL_CreateRGBSurface(SDL_SWSURFACE, WIDTH, HEIGHT, BPP, RMASK, GMASK, BMASK, AMASK);
+	surface = compat_create_surface(WIDTH, HEIGHT, BPP, RMASK, GMASK, BMASK, AMASK);
 	if (!surface) {
 		fprintf(stderr, "Creating SDL surface failed: %s\n",
 			SDL_GetError());
@@ -552,20 +543,15 @@ static int draw_picture(int highlight, int startfreq)
 	}
 
 	SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-	SDL_FreeSurface(surface);
+	SDL_DestroySurface(surface);
 	if (!texture) {
 		fprintf(stderr, "Creating SDL texture failed: %s\n",
 			SDL_GetError());
 		return highlight_freq;
 	}
 
-	DestR.x = 0;
-	DestR.y = 0;
-	DestR.w = WIDTH;
-	DestR.h = HEIGHT;
-
 	SDL_RenderClear(renderer);
-	SDL_RenderCopy(renderer, texture, NULL, &DestR);
+	compat_render_texture(renderer, texture, WIDTH, HEIGHT);
 	SDL_DestroyTexture(texture);
 
 	SDL_RenderPresent(renderer);
@@ -637,14 +623,17 @@ static int graphics_main(char *name, char *fontdir)
 
 		/* don't evaluate the previous event again */
 		if (!has_event)
-			event.type = SDL_FIRSTEVENT;
+			event.type = SDL_EVENT_FIRST;
+
+		if (compat_event_is_exposed(&event))
+			change = 1;
 
 		switch (event.type) {
-		case SDL_QUIT:
+		case SDL_EVENT_QUIT:
 			quit = 1;
 			break;
-		case SDL_KEYDOWN:
-			switch (event.key.keysym.sym) {
+		case SDL_EVENT_KEY_DOWN:
+			switch (compat_event_key(&event)) {
 			case SDLK_LEFT:
 				if (highlight > 0) {
 					highlight--;
@@ -677,7 +666,7 @@ static int graphics_main(char *name, char *fontdir)
 				accel +=1;
 				scroll = 1;
 				break;
-			case 'i':
+			case SDLK_I:
 				color_invert = !color_invert;
 				change = 1;
 				break;
@@ -685,8 +674,8 @@ static int graphics_main(char *name, char *fontdir)
 				break;
 			}
 			break;
-		case SDL_KEYUP:
-			switch (event.key.keysym.sym) {
+		case SDL_EVENT_KEY_UP:
+			switch (compat_event_key(&event)) {
 			case SDLK_PAGEUP:
 				if (scroll_dir < 0)
 					scroll_dir = 0;
@@ -699,12 +688,6 @@ static int graphics_main(char *name, char *fontdir)
 				break;
 			}
 			break;
-		case SDL_WINDOWEVENT:
-			switch (event.window.event) {
-			case SDL_WINDOWEVENT_EXPOSED:
-				change = 1;
-				break;
-			}
 		}
 
 		/* scroll faster as long as the key is pressed */

@@ -48,35 +48,76 @@ endif
 endif
 
 ifeq ($(CONFIG_fft_eval_sdl),y)
-  # test for presence of SDL
-  ifeq ($(origin SDL_CFLAGS) $(origin SDL_LDLIBS), undefined undefined)
-    SDL2_CONFIG = $(CROSS)sdl2-config
-    ifeq ($(shell which $(SDL2_CONFIG) 2>/dev/null),)
-      $(error No SDL development libraries found!)
-    endif
-    SDL_CFLAGS  += $(shell $(SDL2_CONFIG) --cflags)
-    SDL_LDLIBS += $(shell $(SDL2_CONFIG) --libs)
-  endif
-  CFLAGS_fft_eval_sdl.o += $(SDL_CFLAGS)
-  LDLIBS_fft_eval_sdl += $(SDL_LDLIBS)
-  
   ifeq ($(origin PKG_CONFIG), undefined)
     PKG_CONFIG = $(CROSS)pkg-config
     ifeq ($(shell which $(PKG_CONFIG) 2>/dev/null),)
       $(error $(PKG_CONFIG) not found)
     endif
   endif
-  
-  ifeq ($(origin LIBSDL2TTF_CFLAGS) $(origin LIBSDL2TTF_LDLIBS), undefined undefined)
-    LIBSDL2TTF_NAME ?= SDL2_ttf
-    ifeq ($(shell $(PKG_CONFIG) --modversion $(LIBSDL2TTF_NAME) 2>/dev/null),)
-      $(error No $(LIBSDL2TTF_NAME) development libraries found!)
+
+  LIBSDL3_NAME ?= sdl3
+  LIBSDL3TTF_NAME ?= sdl3-ttf
+
+  # SDL3 is preferred but SDL2 is used as fallback when the SDL3 or SDL3_ttf
+  # development libraries were not found by pkg-config (or when flags for
+  # SDL2 were specified manually). The make parameter CONFIG_SDL3 with the
+  # value 'y' forces the use of SDL3 and 'n' the use of SDL2
+  ifeq ($(origin CONFIG_SDL3), undefined)
+    ifeq ($(origin SDL_CFLAGS) $(origin SDL_LDLIBS) $(origin LIBSDL2TTF_CFLAGS) $(origin LIBSDL2TTF_LDLIBS), undefined undefined undefined undefined)
+      CONFIG_SDL3 := $(shell $(PKG_CONFIG) --exists $(LIBSDL3_NAME) $(LIBSDL3TTF_NAME) 2>/dev/null && echo y || echo n)
+    else
+      CONFIG_SDL3 := n
     endif
-    LIBSDL2TTF_CFLAGS += $(shell $(PKG_CONFIG) --cflags $(LIBSDL2TTF_NAME))
-    LIBSDL2TTF_LDLIBS +=  $(shell $(PKG_CONFIG) --libs $(LIBSDL2TTF_NAME))
   endif
-  CFLAGS_fft_eval_sdl.o += $(LIBSDL2TTF_CFLAGS)
-  LDLIBS_fft_eval_sdl += $(LIBSDL2TTF_LDLIBS)
+
+  ifeq ($(CONFIG_SDL3),y)
+    ifeq ($(origin LIBSDL3_CFLAGS) $(origin LIBSDL3_LDLIBS), undefined undefined)
+      ifeq ($(shell $(PKG_CONFIG) --modversion $(LIBSDL3_NAME) 2>/dev/null),)
+        $(error No $(LIBSDL3_NAME) development libraries found!)
+      endif
+      LIBSDL3_CFLAGS += $(shell $(PKG_CONFIG) --cflags $(LIBSDL3_NAME))
+      LIBSDL3_LDLIBS += $(shell $(PKG_CONFIG) --libs $(LIBSDL3_NAME))
+    endif
+    CFLAGS_fft_eval_sdl.o += $(LIBSDL3_CFLAGS)
+    LDLIBS_fft_eval_sdl += $(LIBSDL3_LDLIBS)
+
+    ifeq ($(origin LIBSDL3TTF_CFLAGS) $(origin LIBSDL3TTF_LDLIBS), undefined undefined)
+      ifeq ($(shell $(PKG_CONFIG) --modversion $(LIBSDL3TTF_NAME) 2>/dev/null),)
+        $(error No $(LIBSDL3TTF_NAME) development libraries found!)
+      endif
+      LIBSDL3TTF_CFLAGS += $(shell $(PKG_CONFIG) --cflags $(LIBSDL3TTF_NAME))
+      LIBSDL3TTF_LDLIBS += $(shell $(PKG_CONFIG) --libs $(LIBSDL3TTF_NAME))
+    endif
+    CFLAGS_fft_eval_sdl.o += $(LIBSDL3TTF_CFLAGS)
+    LDLIBS_fft_eval_sdl += $(LIBSDL3TTF_LDLIBS)
+
+    CPPFLAGS_fft_eval_sdl.o += -DCONFIG_SDL3
+  else ifeq ($(CONFIG_SDL3),n)
+    # test for presence of SDL
+    ifeq ($(origin SDL_CFLAGS) $(origin SDL_LDLIBS), undefined undefined)
+      SDL2_CONFIG = $(CROSS)sdl2-config
+      ifeq ($(shell which $(SDL2_CONFIG) 2>/dev/null),)
+        $(error No SDL development libraries found!)
+      endif
+      SDL_CFLAGS  += $(shell $(SDL2_CONFIG) --cflags)
+      SDL_LDLIBS += $(shell $(SDL2_CONFIG) --libs)
+    endif
+    CFLAGS_fft_eval_sdl.o += $(SDL_CFLAGS)
+    LDLIBS_fft_eval_sdl += $(SDL_LDLIBS)
+
+    ifeq ($(origin LIBSDL2TTF_CFLAGS) $(origin LIBSDL2TTF_LDLIBS), undefined undefined)
+      LIBSDL2TTF_NAME ?= SDL2_ttf
+      ifeq ($(shell $(PKG_CONFIG) --modversion $(LIBSDL2TTF_NAME) 2>/dev/null),)
+        $(error No $(LIBSDL2TTF_NAME) development libraries found!)
+      endif
+      LIBSDL2TTF_CFLAGS += $(shell $(PKG_CONFIG) --cflags $(LIBSDL2TTF_NAME))
+      LIBSDL2TTF_LDLIBS +=  $(shell $(PKG_CONFIG) --libs $(LIBSDL2TTF_NAME))
+    endif
+    CFLAGS_fft_eval_sdl.o += $(LIBSDL2TTF_CFLAGS)
+    LDLIBS_fft_eval_sdl += $(LIBSDL2TTF_LDLIBS)
+  else
+    $(error invalid value for parameter CONFIG_SDL3: $(CONFIG_SDL3))
+  endif
 endif
 
 # default to the (cross) gcc but allow to select a different compiler via
@@ -100,7 +141,7 @@ all: $(obj-y)
 # standard build rules
 .SUFFIXES: .o .c
 .c.o:
-	$(COMPILE.c) $(CFLAGS_$(@)) -o $@ $<
+	$(COMPILE.c) $(CFLAGS_$(@)) $(CPPFLAGS_$(@)) -o $@ $<
 
 $(obj-y):
 	$(LINK.o) $^ $(LDLIBS) $(LDLIBS_$(@)) -o $@

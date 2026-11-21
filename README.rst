@@ -25,8 +25,10 @@ data format from Qualcomm Atheros!
 BUILD
 =====
 
-You need to have SDL2 and SDL2_ttf development packages installed
-on your system, as well as make, pkg-config and gcc.
+You need to have SDL3 and SDL3_ttf development packages installed
+on your system, as well as make, pkg-config and gcc. The build falls
+back to SDL2 and SDL2_ttf when SDL3 or SDL3_ttf cannot be found by
+pkg-config.
 
 Just type make to build the programs fft_eval_sdl (graphical viewer) and
 fft_eval_json (converter to JSON):
@@ -41,7 +43,14 @@ fft_eval_json (converter to JSON):
       LD fft_eval_json
   $
 
-fft_eval_json doesn't need SDL2. The viewer can be disabled when the SDL2
+The SDL version can also be selected manually. CONFIG_SDL3=y enforces the
+build with SDL3 and CONFIG_SDL3=n the build with SDL2:
+
+.. code-block:: bash
+
+  $ make CONFIG_SDL3=n
+
+fft_eval_json doesn't need SDL. The viewer can be disabled when the SDL
 development packages are not available:
 
 .. code-block:: bash
