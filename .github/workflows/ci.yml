@@ -12,14 +12,24 @@ permissions:
 
 jobs:
   linux:
-    name: Linux (${{ matrix.compiler }}, ${{ matrix.variant.name }})
+    name: Linux (${{ matrix.compiler }}, ${{ matrix.sdl.name }}, ${{ matrix.variant.name }})
     runs-on: ubuntu-latest
+    # ubuntu-latest doesn't provide SDL3 packages
+    container:
+      image: debian:trixie
+      # required by LeakSanitizer
+      options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     strategy:
       fail-fast: false
       matrix:
         compiler:
           - gcc
           - clang
+        sdl:
+          - name: SDL3
+            config: "y"
+          - name: SDL2
+            config: "n"
         variant:
           - name: coverage
             cflags: "--coverage"
@@ -38,11 +48,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            make gcc clang libclang-rt-dev libc6-dev pkg-config valgrind \
+            libsdl3-dev libsdl3-ttf-dev libsdl2-dev libsdl2-ttf-dev
+      - name: Build and test
+        run: make clean && make -j"$(nproc)" CONFIG_SDL3=${{ matrix.sdl.config }} test
+
+  # test fallback to SDL2 when SDL3 is not installed
+  linux-sdl2-fallback:
+    name: Linux (SDL2 fallback)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libsdl2-dev libsdl2-ttf-dev valgrind
+            pkg-config libsdl2-dev libsdl2-ttf-dev
       - name: Build and test
         run: make clean && make -j"$(nproc)" test
+      - name: Check used SDL version
+        run: ldd fft_eval_sdl | grep libSDL2_ttf
 
   # test without sdl installed
   linux-no-sdl:
@@ -79,10 +106,14 @@ jobs:
           pacboy: >-
             gcc:p
             pkgconf:p
+            sdl3:p
+            sdl3-ttf:p
             SDL2:p
             SDL2_ttf:p
-      - name: Build
-        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS}
+      - name: Build (SDL3)
+        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} CONFIG_SDL3=y
+      - name: Build (SDL2)
+        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} CONFIG_SDL3=n
 
   # osx native build
   macos:
@@ -93,9 +124,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install pkgconf sdl2 sdl2_ttf
-      - name: Build and test
-        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} test
+        run: brew install pkgconf sdl3 sdl3_ttf sdl2 sdl2_ttf
+      - name: Build and test (SDL3)
+        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} CONFIG_SDL3=y test
+      - name: Build and test (SDL2)
+        run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} CONFIG_SDL3=n test
 
   # reuse test
   reuse:
