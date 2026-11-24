@@ -10,7 +10,6 @@
 
 #include <stdint.h>
 
-
 typedef int8_t s8;
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -21,6 +20,7 @@ enum ath_fft_sample_type {
         ATH_FFT_SAMPLE_HT20_40 = 2,
 	ATH_FFT_SAMPLE_ATH10K = 3,
 	ATH_FFT_SAMPLE_ATH11K = 4,
+	MT7996_SPECTRUM_TYPE = 64,
 };
 
 enum nl80211_channel_type {
@@ -144,6 +144,41 @@ struct fft_sample_ath11k {
 	u8 data[0];
 } __attribute__((packed));
 
+/*
+ * mt7996 spectrum capture definition
+ */
+
+#define MT7996_SPECTRUM_MAX_SAMPLES	2048
+
+enum mt7996_spectrum_gain {
+	MT7996_SPECTRUM_GAIN_AUTO = 0,
+	MT7996_SPECTRUM_GAIN_HIGH = 1,
+	MT7996_SPECTRUM_GAIN_MID = 2,
+	MT7996_SPECTRUM_GAIN_LOW = 3,
+};
+
+struct mt7996_spectrum_capture {
+	struct fft_sample_tlv tlv;
+	u8 _rsv;
+
+	uint32_t seq;
+	uint64_t timestamp;
+	uint32_t capture_node;
+	uint32_t center_freq_mhz;
+	uint16_t bandwidth_mhz;
+	u8 band;
+	u8 gain;
+
+	struct {
+		int32_t i, q;
+	} data[0];
+} __attribute__((packed));
+
+#define mt7996_spectrum_capture_sample_count(capture) (((capture).tlv.length -		\
+							(sizeof(capture) -		\
+							 sizeof(capture.tlv))) /	\
+						       sizeof(capture.data[0]))
+
 #if defined(__WIN32__)
 #pragma pack(pop)
 #endif
@@ -162,6 +197,15 @@ struct scanresult {
 			struct fft_sample_ath11k header;
 			u8 data[SPECTRAL_ATH11K_MAX_NUM_BINS];
 		} ath11k;
+		struct {
+			struct mt7996_spectrum_capture header;
+			struct {
+				int32_t i, q;
+			} raw[MT7996_SPECTRUM_MAX_SAMPLES];
+			struct {
+				float re, im;
+			} fft[MT7996_SPECTRUM_MAX_SAMPLES];
+		} mt7996;
 	} sample;
 	struct scanresult *next;
 };
