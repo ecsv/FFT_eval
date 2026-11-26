@@ -99,6 +99,7 @@ ifeq ($(origin CC), default)
 endif
 RM ?= rm -f
 INSTALL ?= install
+PYTHON ?= python3
 MKDIR ?= mkdir -p
 COMPILE.c = $(Q_CC)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 LINK.o = $(Q_LD)$(CC) $(CFLAGS) $(LDFLAGS) $(TARGET_ARCH)
@@ -140,7 +141,7 @@ test:: fft_eval_json
 	for i in $(wildcard samples/*.dump); do \
 		echo $$i; \
 		$(TESTRUN_WRAPPER) ./fft_eval_json $$i > $$i.test; \
-		cmp $$i.test $$i.json; \
+		$(PYTHON) ./compare_json.py $$i.json $$i.test; \
 	done
 endif
 
