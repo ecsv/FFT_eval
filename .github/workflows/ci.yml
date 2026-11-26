@@ -20,6 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install pkgconf sdl2 sdl2_ttf
+        run: brew install pkgconf sdl2 sdl2_ttf cmake
+      # kissfft is not packaged by Homebrew
+      - name: Build kissfft
+        run: |
+          git clone --depth 1 --branch 131.2.0 https://github.com/mborgerding/kissfft.git "${RUNNER_TEMP}/kissfft"
+          cmake -S "${RUNNER_TEMP}/kissfft" -B "${RUNNER_TEMP}/kissfft/build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/kissfft-install" \
+            -DCMAKE_INSTALL_BINDIR=bin \
+            -DCMAKE_INSTALL_INCLUDEDIR=include \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DKISSFFT_DATATYPE=float \
+            -DKISSFFT_STATIC=ON \
+            -DKISSFFT_PKGCONFIG=ON \
+            -DKISSFFT_TEST=OFF \
+            -DKISSFFT_TOOLS=OFF
+          cmake --build "${RUNNER_TEMP}/kissfft/build"
+          cmake --install "${RUNNER_TEMP}/kissfft/build"
+          echo "PKG_CONFIG_PATH=${RUNNER_TEMP}/kissfft-install/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" >> "${GITHUB_ENV}"
       - name: Build and test
         run: make ${MAKE_FLAGS} clean && make ${MAKE_FLAGS} test
