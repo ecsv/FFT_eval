@@ -429,6 +429,7 @@ int fft_eval_init(char *fname)
 	}
 
 	fprintf(stderr, "read %d scan results\n", scanresults_n);
+	kiss_fft_free(fft_cfg);
 	free(scandata);
 
 	return 0;
