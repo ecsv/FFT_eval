@@ -11,6 +11,8 @@
  * based chipsets.
  */
 
+#include <assert.h>
+#include <kiss_fft.h>
 #include "fft_eval.h"
 
 #if defined(__APPLE__)
@@ -18,16 +20,25 @@
   #define CONVERT_BE16(val)	val = OSSwapBigToHostInt16(val)
   #define CONVERT_BE32(val)	val = OSSwapBigToHostInt32(val)
   #define CONVERT_BE64(val)	val = OSSwapBigToHostInt64(val)
+  #define CONVERT_LE16(val)	val = OSSwapLittleToHostInt16(val)
+  #define CONVERT_LE32(val)	val = OSSwapLittleToHostInt32(val)
+  #define CONVERT_LE64(val)	val = OSSwapLittleToHostInt64(val)
 #elif defined(_WIN32)
   #define __USE_MINGW_ANSI_STDIO 1
   #if __BYTE_ORDER == __LITTLE_ENDIAN
     #define CONVERT_BE16(val)	val = _byteswap_ushort(val)
     #define CONVERT_BE32(val)	val = _byteswap_ulong(val)
     #define CONVERT_BE64(val)	val = _byteswap_uint64(val)
+    #define CONVERT_LE16(val)	val = _byteswap_ushort(val)
+    #define CONVERT_LE32(val)	val = _byteswap_ulong(val)
+    #define CONVERT_LE64(val)	val = _byteswap_uint64(val)
   #elif __BYTE_ORDER == __BIG_ENDIAN
     #define CONVERT_BE16(val)
     #define CONVERT_BE32(val)
     #define CONVERT_BE64(val)
+    #define CONVERT_LE16(val)
+    #define CONVERT_LE32(val)
+    #define CONVERT_LE64(val)
   #else
     #error Endianess undefined
   #endif
@@ -40,6 +51,9 @@
   #define CONVERT_BE16(val)	val = be16toh(val)
   #define CONVERT_BE32(val)	val = be32toh(val)
   #define CONVERT_BE64(val)	val = be64toh(val)
+  #define CONVERT_LE16(val)	val = le16toh(val)
+  #define CONVERT_LE32(val)	val = le32toh(val)
+  #define CONVERT_LE64(val)	val = le64toh(val)
 #endif
 #include <errno.h>
 #include <stdio.h>
@@ -99,6 +113,23 @@ static char *read_file(char *fname, size_t *size)
 	return buf;
 }
 
+static void reverse_array(kiss_fft_cpx *array, size_t len) {
+	size_t i;
+	kiss_fft_cpx tmp;
+
+	for (i = 0; i < len / 2; i++) {
+		tmp = array[i];
+		array[i] = array[len-i-1];
+		array[len-i-1] = tmp;
+	}
+}
+
+static void fftshift(kiss_fft_cpx *array, size_t len) {
+	reverse_array(array, len);
+	reverse_array(array, len / 2);
+	reverse_array(array + len / 2, len - len / 2);
+}
+
 /*
  * is_zero - checks whether all FFT bins are zero
  *
@@ -151,7 +182,9 @@ int fft_eval_init(char *fname)
 	struct scanresult *result;
 	struct fft_sample_tlv *tlv;
 	struct scanresult *tail = result_list;
-	int handled, bins;
+	int handled, bins, samples, i;
+	kiss_fft_cfg fft_cfg = NULL;
+	int nfft = 0;
 
 	scandata = read_file(fname, &len);
 	if (!scandata)
@@ -329,6 +362,49 @@ int fft_eval_init(char *fname)
 			CONVERT_BE16(result->sample.ath11k.header.rssi);
 			CONVERT_BE32(result->sample.ath11k.header.tsf);
 			CONVERT_BE32(result->sample.ath11k.header.noise);
+
+			handled = 1;
+			break;
+		case MT7996_SPECTRUM_TYPE:
+			if (sample_len < sizeof(result->sample.mt7996.header)) {
+				fprintf(stderr, "wrong sample length (have %zd, expected at least %zd)\n",
+					sample_len, sizeof(result->sample.mt7996.header));
+				break;
+			}
+
+			samples = (sample_len - sizeof(result->sample.mt7996.header)) /
+				sizeof(result->sample.mt7996.raw[0]);
+
+			CONVERT_LE32(result->sample.mt7996.header.seq);
+			CONVERT_LE64(result->sample.mt7996.header.timestamp);
+			CONVERT_LE32(result->sample.mt7996.header.capture_node);
+			CONVERT_LE32(result->sample.mt7996.header.center_freq_mhz);
+			CONVERT_LE16(result->sample.mt7996.header.bandwidth_mhz);
+
+			if (!fft_cfg || nfft != samples) {
+				kiss_fft_free(fft_cfg);
+				nfft = samples;
+				fft_cfg = kiss_fft_alloc(nfft, 0, NULL, NULL);
+				if (!fft_cfg) {
+					fprintf(stderr, "fft not available: out of memory");
+					break;
+				}
+			}
+
+			for (i = 0; i < samples; i++) {
+				CONVERT_LE32(result->sample.mt7996.raw[i].i);
+				CONVERT_LE32(result->sample.mt7996.raw[i].q);
+				result->sample.mt7996.fft[i].re =
+					result->sample.mt7996.raw[i].i /
+					-(float)INT32_MIN;
+				result->sample.mt7996.fft[i].im =
+					result->sample.mt7996.raw[i].q /
+					-(float)INT32_MIN;
+			}
+
+			kiss_fft(fft_cfg, (kiss_fft_cpx *)result->sample.mt7996.fft,
+				 (kiss_fft_cpx *)result->sample.mt7996.fft);
+			fftshift((kiss_fft_cpx *)result->sample.mt7996.fft, nfft);
 
 			handled = 1;
 			break;
